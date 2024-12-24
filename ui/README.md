@@ -7,9 +7,9 @@ A modern, user-friendly graphical interface for converting various file formats 
 - Upload and convert multiple files simultaneously
 - Convert web pages directly from URLs
 - Real-time conversion progress tracking
-- Preview converted content before saving
-- Custom output directory selection
-- Batch processing with status updates
+- Live preview with word count
+- Native file save dialog with smart filename suggestions
+- Batch processing with detailed status updates
 - Modern, intuitive interface
 
 ## Supported File Types
@@ -42,22 +42,20 @@ python gradio/gradio_app.py
 2. Open your web browser to http://localhost:7860
 
 ### Converting Files
-
 1. Click "File Conversion" tab
-2. Upload files using the file picker or drag & drop
-3. Enter output filename (without .md extension)
-4. Choose output directory
-5. Click "Convert Files"
+2. Drag and drop files or click to select
+3. Preview the conversion result
+4. Click "Convert to Markdown"
+5. Choose save location in the dialog (original filename will be suggested)
 6. Monitor progress and view results
 
 ### Converting URLs
 
 1. Click "URL Conversion" tab
 2. Enter webpage URL
-3. Enter output filename (without .md extension)
-4. Choose output directory
-5. Click "Convert URL"
-6. Monitor progress and access converted file
+3. Click "Convert to Markdown"
+4. Choose save location in the dialog (URL-based filename will be suggested)
+5. Monitor progress and access converted file
 
 ## Error Handling
 
@@ -70,9 +68,9 @@ The interface provides clear feedback for:
 
 ## Tips
 
-- Use meaningful filenames
-- Preview files before conversion
-- Ensure sufficient disk space
+- Preview content before converting
+- Original filenames are preserved with .md extension
+- Save dialog remembers last used location
 - Monitor progress for large files
 - Check error messages if issues occur
 

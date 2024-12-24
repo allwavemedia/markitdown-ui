@@ -17,8 +17,8 @@ from markitdown import MarkItDown
 F = TypeVar('F', bound=gr.File)
 
 
-def select_directory() -> str:
-    """Open folder selection dialog and return chosen path."""
+def get_save_path(original_name: str) -> str:
+    """Open save file dialog with suggested name."""
     # Create and configure root window
     root = tk.Tk()
     root.withdraw()  # Hide main window
@@ -26,16 +26,20 @@ def select_directory() -> str:
     root.focus_force()  # Force focus
     
     try:
-        # Show folder selection dialog
-        folder_path = filedialog.askdirectory(
-            title='Select Output Directory',
-            initialdir=str(Path.home() / "Documents")
+        # Get base name without extension
+        base_name = os.path.splitext(original_name)[0]
+        suggested_name = f"{base_name}.md"
+        
+        # Show save file dialog
+        save_path = filedialog.asksaveasfilename(
+            title='Save Markdown File As',
+            initialdir=str(Path.home() / "Documents"),
+            initialfile=suggested_name,
+            defaultextension=".md",
+            filetypes=[("Markdown files", "*.md")]
         )
         
-        # Return selected path or default
-        if folder_path:
-            return folder_path
-        return str(Path.home() / "Documents")
+        return save_path if save_path else ""
     finally:
         # Clean up
         root.quit()
@@ -80,8 +84,10 @@ def preview_file(
                 "Please upload one of the supported formats."
             )
 
+        # Initialize MarkItDown
         md = MarkItDown()
         result = md.convert(file_path)
+        
         # Show longer preview with word count
         preview_length = 1000
         text = result.text_content
@@ -125,8 +131,6 @@ def _validate_files(files: List[F]) -> Optional[Tuple[str, None]]:
 
 def convert_files(
     files: List[F],
-    output_name: str,
-    output_dir: str,
     progress: Optional[gr.Progress] = None
 ) -> Tuple[str, Optional[str]]:
     """
@@ -136,12 +140,10 @@ def convert_files(
     if validation_error:
         return validation_error
     
+    # Initialize MarkItDown
     md = MarkItDown()
     results = []
     total_files = len(files)
-
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
 
     # Initialize progress tracking
     for i, file in enumerate(files):
@@ -158,22 +160,30 @@ def convert_files(
 
         try:
             result = md.convert(file_path)
-            output_path = os.path.join(
-                output_dir,
-                (f"{output_name}_{i+1}.md"
-                 if total_files > 1 else f"{output_name}.md")
-            )
+            
+            # Get save path from user
+            save_path = get_save_path(os.path.basename(file_path))
+            if not save_path:
+                results.append(
+                    f"✗ Skipped {os.path.basename(file_path)} - "
+                    "No save location selected"
+                )
+                continue
 
-            with open(output_path, 'w', encoding='utf-8') as f:
+            # Create output directory if needed
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+            # Save the converted file
+            with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(result.text_content)
 
             # Add file size information to the success message
-            file_size = os.path.getsize(file_path)
+            file_size = os.path.getsize(save_path)
             size_mb = file_size / (1024 * 1024)
             results.append(
                 f"✓ Converted {os.path.basename(file_path)}\n"
                 f"Size: {size_mb:.1f} MB\n"
-                f"Path: {output_path}"
+                f"Saved as: {save_path}"
             )
         except (IOError, ValueError) as e:
             results.append(
@@ -188,8 +198,6 @@ def convert_files(
 
 def convert_url(
     url: str,
-    output_name: str,
-    output_dir: str,
     progress: Optional[gr.Progress] = None
 ) -> Tuple[str, Optional[str]]:
     """Convert webpage content to markdown."""
@@ -203,19 +211,27 @@ def convert_url(
         if progress:
             progress(0.6, desc="Converting to markdown")
 
+        # Initialize MarkItDown
         md = MarkItDown()
         result = md.convert(temp_file)
 
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"{output_name}.md")
+        # Get save path from user
+        url_filename = url.split('/')[-1] or 'webpage'
+        save_path = get_save_path(url_filename)
+        if not save_path:
+            return "Conversion cancelled - No save location selected", None
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        # Create output directory if needed
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+        # Save the converted file
+        with open(save_path, 'w', encoding='utf-8') as f:
             f.write(result.text_content)
 
         os.unlink(temp_file)  # Clean up temporary file
         if progress:
             progress(1.0)
-        return f"Successfully converted {url} to {output_path}", "100%"
+        return f"Successfully converted {url} to {save_path}", "100%"
     except (IOError, ValueError, requests.RequestException) as e:
         return f"Error converting URL: {str(e)}", None
 
@@ -236,21 +252,32 @@ def create_interface() -> gr.Blocks:
             with gr.TabItem("📁 File Conversion"):
                 with gr.Row():
                     with gr.Column(scale=2):
+                        gr.Markdown("### 📤 Upload Files to Convert")
+                        gr.Markdown(
+                            "1. Drag and drop files or click to select\n"
+                            "2. Preview the conversion\n"
+                            "3. Click Convert and choose where to save\n\n"
+                            "Supports PDF, Word, Excel, images, and more."
+                        )
                         # File upload component
                         files = gr.File(  # type: ignore[no-any-return]
                             file_count="multiple",
-                            label="Upload Files",
+                            label="",  # Label shown in markdown above
                             file_types=[
                                 ".pdf", ".docx", ".pptx", ".xlsx",
                                 ".jpg", ".jpeg", ".png", ".html",
                                 ".csv", ".json", ".xml", ".zip"
-                            ]
+                            ],
+                            height=200,  # Make drop zone more prominent
                         )
                         # Preview component
                         preview = gr.Textbox(
-                            label="Preview",
-                            placeholder="Preview...",
-                            lines=5,
+                            label="Content Preview",
+                            placeholder=(
+                                "Preview of converted markdown content...\n"
+                                "Check content before converting."
+                            ),
+                            lines=10,
                             interactive=False
                         )
                         # Check for preview handler
@@ -263,121 +290,84 @@ def create_interface() -> gr.Blocks:
                             )
 
                     with gr.Column(scale=1):
-                        # Output settings
-                        output_name = gr.Textbox(
-                            label="Filename",
-                            placeholder="Name...",
-                            value="output"
+                        gr.Markdown("### 🔄 Convert & Save")
+                        gr.Markdown(
+                            "Click Convert to choose save location.\n"
+                            "Original filename will be suggested."
                         )
-                        with gr.Row():
-                            output_dir = gr.Textbox(
-                                label="Save To",
-                                placeholder="Path...",
-                                value=str(Path.home() / "Documents"),
-                                scale=4
-                            )
-                            browse_btn = gr.Button(
-                                "📂 Browse",
-                                scale=1
-                            )
                         progress_bar = gr.Textbox(
-                            label="Status",
-                            value="0%",
+                            label="Conversion Status",
+                            value="Ready to convert...",
                             interactive=False
                         )
                         # Convert button
                         convert_btn = gr.Button(
-                            "🔄 Convert",
+                            "🔄 Convert to Markdown",
                             variant="primary",
+                            size="lg",  # Make button larger
                             # type: ignore[no-any-return]
                             elem_id="convert_btn"
                         )
 
                 # Results display
                 result = gr.Textbox(
-                    label="Results",
+                    label="Conversion Results",
+                    placeholder="Conversion results will appear here...",
                     lines=5,
                     interactive=False
                 )
 
-                # Setup event handlers
-                has_browse = hasattr(browse_btn, 'click')
-                has_convert = hasattr(convert_btn, 'click')
-                
-                if has_browse:
-                    browse_btn.click(
-                        fn=select_directory,
-                        inputs=None,
-                        outputs=output_dir
-                    )
-                if has_convert:
+                # Handle file conversion
+                if hasattr(convert_btn, 'click'):
                     convert_btn.click(  # type: ignore[attr-defined]
                         fn=convert_files,
-                        inputs=[files, output_name, output_dir],
+                        inputs=[files],
                         outputs=[result, progress_bar]
                     )
 
             with gr.TabItem("🌐 URL Conversion"):
                 with gr.Row():
                     with gr.Column(scale=2):
+                        gr.Markdown("### 🌐 Enter URL to Convert")
+                        gr.Markdown(
+                            "1. Enter webpage URL\n"
+                            "2. Click Convert and choose where to save\n"
+                            "3. URL filename will be suggested"
+                        )
                         # URL input
                         url = gr.Textbox(
-                            label="URL",
-                            placeholder="URL..."
+                            label="",  # Label shown in markdown above
+                            placeholder="Enter URL to convert..."
                         )
-
                     with gr.Column(scale=1):
-                        # Output settings
-                        url_output_name = gr.Textbox(
-                            label="Filename",
-                            placeholder="Name...",
-                            value="webpage"
-                        )
-                        with gr.Row():
-                            url_output_dir = gr.Textbox(
-                                label="Save To",
-                                placeholder="Path...",
-                                value=str(Path.home() / "Documents"),
-                                scale=4
-                            )
-                            url_browse_btn = gr.Button(
-                                "📂 Browse",
-                                scale=1
-                            )
+                        gr.Markdown("### 🔄 Convert")
                         url_progress_bar = gr.Textbox(
-                            label="Status",
-                            value="0%",
+                            label="Conversion Status",
+                            value="Ready to convert...",
                             interactive=False
                         )
                         # Convert button
                         url_convert_btn = gr.Button(
-                            "🔄 Convert",
+                            "🔄 Convert to Markdown",
                             variant="primary",
+                            size="lg",  # Make button larger
                             # type: ignore[no-any-return]
                             elem_id="url_btn"
                         )
 
                 # Results display
                 url_result = gr.Textbox(
-                    label="Results",
+                    label="Conversion Results",
+                    placeholder="Conversion results will appear here...",
                     lines=5,
                     interactive=False
                 )
 
-                # Setup event handlers
-                has_url_browse = hasattr(url_browse_btn, 'click')
-                has_url_convert = hasattr(url_convert_btn, 'click')
-                
-                if has_url_browse:
-                    url_browse_btn.click(
-                        fn=select_directory,
-                        inputs=None,
-                        outputs=url_output_dir
-                    )
-                if has_url_convert:
+                # Handle URL conversion
+                if hasattr(url_convert_btn, 'click'):
                     url_convert_btn.click(  # type: ignore[attr-defined]
                         fn=convert_url,
-                        inputs=[url, url_output_name, url_output_dir],
+                        inputs=[url],
                         outputs=[url_result, url_progress_bar]
                     )
 
